@@ -1,0 +1,6 @@
+android.location.Location->getLongitude
+android.location.Location->getLatitude
+android.location.Location->getAltitude
+android.location.LocationManager->getLastKnownLocation
+android.location.LocationManager->requestLocationUpdates
+android.location.LocationManager->requestSingleUpdate
