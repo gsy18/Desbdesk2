@@ -117,7 +117,7 @@ public class Desbdesk2{
           AttachingConnector attacher=(AttachingConnector) connector;*/
           vm=null;
            System.out.println("pppppprerer");
-           vm=attacher.attach(arguments);      
+           vm=attacher.attach(arguments);    
            System.out.println("rerer");
            //vm=launcher.launch(arguments);
            generateTrace(writer);           

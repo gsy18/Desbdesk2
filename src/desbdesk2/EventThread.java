@@ -15,26 +15,32 @@ import java.util.logging.Logger;
 
 public class EventThread extends Thread {
     String s_var;
-    String inc_s="";
+    String last_Sensitive_Source_Calls="";
     String fname;
-    LocalVariable fl_t=null;
-    int inc_l=0;
+    LocalVariable flown_to_var=null;
+    int Sensitive_Source_Calls_line_no=0;
     long days, seconds, minutes, hours, uptime;
     HashMap <ThreadReference,pair>line;
     private final VirtualMachine vm;   // Running VM
    // private final String[] excludes;   // Packages to exclude
     int b1,b2;
     static String nextBaseIndent = ""; // Starting indent for next thread
-    HashMap <LocalVariable,Value>varvl1;
-    HashMap <LocalVariable,Value>varvl2;
-    HashMap <LocalVariable,String>taint_s;
-    HashSet <LocalVariable>sensitive;
-    HashSet <String>sources_c;
-    HashSet <String>sinks_c;
-    HashSet <String>sources_m;
-    HashSet <String>sinks_m;
-    HashSet <String>flow_c;
-    HashSet <String>flow_m;
+    HashMap <LocalVariable,Value>variables_new_value;
+    Value last_class_variable_access_value;
+    Value modified_class_variable_value;
+    String class_var_accessed_name="";
+    String modified_class_variable_name="";
+    HashMap <LocalVariable,Value>variables_old_value;
+    HashMap <LocalVariable,String>taint_information_local;
+    HashMap <String,String>taint_information_class;
+    HashSet <LocalVariable>sensitive_local_variables;
+    HashSet <String>sensitive_class_variables;
+    HashSet <String>sensitive_source_classes;
+    HashSet <String>sensitive_sink_classes;
+    HashSet <String>sensitive_source_methods;
+    HashSet <String>sensitive_sink_methods;
+    HashSet <String>flow_classes;
+    HashSet <String>flow_methods;
     private boolean connected = true;  // Connected to VM
     private boolean vmDied = true;     // VMDeath occurred
 
@@ -46,20 +52,22 @@ public class EventThread extends Thread {
         super("event-handler");
         this.vm = vm;
         line =new HashMap<>();
-        varvl2=new HashMap<>();
-        taint_s=new HashMap<>();
-        sources_c=sr1;
+        variables_old_value=new HashMap<>();
+        taint_information_local=new HashMap<>();
+        taint_information_class=new HashMap<>();
+        sensitive_source_classes=sr1;
         fname=yy;
         b1=i;
         b2=j;
         s_var=hhp;
         System.out.println("got breakpoints "+i+" and"+j);
-        sinks_c=sk1;
-        sources_m=sr2;
-        sinks_m=sk2;
-        sensitive=new HashSet<>();  
-        flow_c=sk3;
-        flow_m=sk4;        
+        sensitive_sink_classes=sk1;
+        sensitive_source_methods=sr2;
+        sensitive_sink_methods=sk2;
+        sensitive_local_variables=new HashSet<>();  
+        sensitive_class_variables=new HashSet<>();  
+        flow_classes=sk3;
+        flow_methods=sk4;        
     }
 
     /**
@@ -95,7 +103,6 @@ public class EventThread extends Thread {
      */
     void setEventRequests(boolean watchFields) {
         EventRequestManager mgr = vm.eventRequestManager();
-        
         // want all exceptions        
         ExceptionRequest excReq = mgr.createExceptionRequest(null,
                                                              true, true);
@@ -128,33 +135,33 @@ public class EventThread extends Thread {
 
         void methodEntryEvent(MethodEntryEvent event)  { 
             
-            String nm=event.method().name();
+            String currentMethodName=event.method().name();
             try {
                 pair p=line.get(event.thread());
                 /*if(nm.equals("getProperty"))
                 {*/
-                    if(sources_m.contains(nm))
+                    if(sensitive_source_methods.contains(currentMethodName))
                     {
-                        inc_s+=nm+" ";
-                        inc_l=p.ln;
+                        last_Sensitive_Source_Calls+=currentMethodName+" ";
+                        Sensitive_Source_Calls_line_no=p.ln;
                     }
-                    else if(flow_m.contains(nm))
+                    else if(flow_methods.contains(currentMethodName))
                     {
                         for(Value v:event.thread().frame(0).getArgumentValues())
                         {
                             if(v!=null)
                             {
-                                for(LocalVariable bb:sensitive)
+                                for(LocalVariable bb:sensitive_local_variables)
                                 {
-                                    if(v.equals(varvl1.get(bb)))
+                                    if(v.equals(variables_new_value.get(bb)))
                                     {
                                         String var_o=event.thread().frame(0).thisObject().toString();
-                                        for(LocalVariable tm:varvl1.keySet())
+                                        for(LocalVariable tm:variables_new_value.keySet())
                                         {
-                                            if((varvl1.get(tm)!=null)&&varvl1.get(tm).toString().equals(var_o))
+                                            if((variables_new_value.get(tm)!=null)&&variables_new_value.get(tm).toString().equals(var_o))
                                             {
-                                                fl_t=tm;                                                
-                                                taint_s.put(tm, taint_s.get(tm)+" "+taint_s.get(bb)+" "+bb.name()+":line-"+p.ln);
+                                                flown_to_var=tm;                                                
+                                                taint_information_local.put(tm, taint_information_local.get(tm)+" "+taint_information_local.get(bb)+" "+bb.name()+":line-"+p.ln);
                                                 break;
                                             }
                                         }
@@ -163,19 +170,19 @@ public class EventThread extends Thread {
                             }
                         }
                     }
-                    else if(sinks_m.contains(nm))
+                    else if(sensitive_sink_methods.contains(currentMethodName))
                     {
                         boolean ac=false;
                         for(Value v:event.thread().frame(0).getArgumentValues())
                         {
                             if(v!=null)
                             {
-                                for(LocalVariable bb:sensitive)
+                                for(LocalVariable bb:sensitive_local_variables)
                                 {
-                                    if(v.equals(varvl1.get(bb)))
+                                    if(v.equals(variables_new_value.get(bb)))
                                     {
-                                        System.err.println(" Data leaked at "+p.ln+" by "+nm);
-                                        System.err.print(bb.name()+" was tainted by "+taint_s.get(bb));
+                                        System.err.println(" Data leaked at "+p.ln+" by "+currentMethodName);
+                                        System.err.print(bb.name()+" was tainted by "+taint_information_local.get(bb));
                                         ac=true;
                                         break;
                                     }
@@ -194,7 +201,7 @@ public class EventThread extends Thread {
                 ex.printStackTrace();
             }            
             catch (Exception ex) {
-                System.err.println("fault functions is "+nm+"  in  "+event.method().declaringType().name()+" "+ex.toString());
+                System.err.println("fault functions is "+currentMethodName+"  in  "+event.method().declaringType().name()+" "+ex.toString());
            
             }
         }
@@ -203,22 +210,30 @@ public class EventThread extends Thread {
         }
 
         void fieldWatchEvent(ModificationWatchpointEvent event)  {
-            try {
-            Field field = event.field();
-           // Value value = event.valueToBe();
-            System.err.println("modification || Line number="+event.location().lineNumber()+"  "+"Previous value="+event.valueCurrent()+"    "+event.object()+"    " + field.name() + " = " + event.valueToBe());
-            } catch (Exception ex) {
+            try 
+            {
+                Field field = event.field();
+                modified_class_variable_name=field.name();
+                modified_class_variable_value=event.valueToBe();
+               // Value value = event.valueToBe();
+                System.err.println("modification || Line number="+event.location().lineNumber()+"  "+"Previous value="+event.valueCurrent()+"    "+event.object()+"    " + field.name() + " = " + event.valueToBe());                                              
+            } 
+            catch (Exception ex) 
+            {
                 Logger.getLogger(EventThread.class.getName()).log(Level.SEVERE, null, ex);
             }
         }
          void fieldAccessEvent(AccessWatchpointEvent event)  {  
                 Field field = event.field();
+                
                 System.err.println("access || Line number="+event.location().toString()+"  " + field.name()+"    "+field.typeName()+"   "+field.isPrivate()+"    "+event.valueCurrent());          
-        }
+                last_class_variable_access_value=event.valueCurrent();
+                class_var_accessed_name=field.name();         
+         }
         void exceptionEvent(ExceptionEvent event) {
-            /*System.out.println("Exception: " + event.exception() +
-                    " catch: " + event.catchLocation());
-
+            System.err.println("Exception: " + event.exception() +
+                    " catch: " + event.toString());
+/*
             // Step to the catch
             EventRequestManager mgr = vm.eventRequestManager();
             StepRequest req = mgr.createStepRequest(thread,
@@ -244,22 +259,43 @@ public class EventThread extends Thread {
 
                seconds = TimeUnit.MILLISECONDS.toSeconds(uptime);
                
+               
+                EventRequestManager mgr = vm.eventRequestManager(); 
+                
+                List<Field> fields = event.location().declaringType().fields();
+                for (Field field : fields) 
+                {
+                    ModificationWatchpointRequest req = mgr.createModificationWatchpointRequest(field);
+                    AccessWatchpointRequest rw = mgr.createAccessWatchpointRequest(field);
+                    System.out.println(field.name()+"  is class variable");
+                    req.addClassFilter(event.location().declaringType());
+                    rw.addClassFilter(event.location().declaringType()); 
+                    
+                    req.addThreadFilter(event.thread());
+                    rw.addThreadFilter(event.thread());
+                    
+                    //  req.addClassFilter("debdesk.*");
+                    req.setSuspendPolicy(EventRequest.SUSPEND_EVENT_THREAD);
+                    rw.setSuspendPolicy(EventRequest.SUSPEND_EVENT_THREAD);
+                    req.enable();
+                    // rw.setSuspendPolicy(EventRequest.SUSPEND_NONE);
+                   // rw.enable();
+                }
                 pair pr=new pair();
                 pr.cname=event.location().declaringType().name();
                 pr.ln=event.location().lineNumber();        
                 line.put(event.thread(),pr);
-                EventRequestManager mgr = vm.eventRequestManager(); 
                 System.out.print("List of local variables: ");
                     for(LocalVariable v:event.location().method().variables())
                     {
-                        varvl2.put(v,null);
-                        taint_s.put(v,"");
+                        variables_old_value.put(v,null);
+                        taint_information_local.put(v,"");
                         System.out.print(v.name()+" ");
                         for(String ss:s_var.split(","))
                         {
                             if(ss.equals(v.name()))
                             {
-                                sensitive.add(v);                            
+                                sensitive_local_variables.add(v);                            
                             }
                         }
                     }System.out.println();
@@ -268,23 +304,23 @@ public class EventThread extends Thread {
                     {
                         if(sf.getValue(v)!=null)
                         {
-                            varvl2.put(v,sf.getValue(v));
+                            variables_old_value.put(v,sf.getValue(v));
                         }
                         else
                         {
-                            varvl2.put(v,null);
+                            variables_old_value.put(v,null);
                         }
                     }
-                    varvl1=new HashMap<>(varvl2);
+                    variables_new_value=new HashMap<>(variables_old_value);
                     System.out.println("1st breakpoint hit at=== "+event.location().lineNumber());                                     
                     StepRequest st=mgr.createStepRequest(event.thread(),StepRequest.STEP_LINE,StepRequest.STEP_OVER);
                     st.addCountFilter(1);
                     st.addClassFilter("*."+fname);              
                     st.setSuspendPolicy(EventRequest.SUSPEND_EVENT_THREAD);
                     st.enable();  
-                    sources_c.addAll(sinks_c);
-                    sources_c.addAll(flow_c);
-                    for(String cs:sources_c)
+                    sensitive_source_classes.addAll(sensitive_sink_classes);
+                    sensitive_source_classes.addAll(flow_classes);
+                    for(String cs:sensitive_source_classes)
                     {
                         MethodEntryRequest menr = mgr.createMethodEntryRequest();
                         menr.setSuspendPolicy(EventRequest.SUSPEND_EVENT_THREAD);
@@ -322,6 +358,9 @@ public class EventThread extends Thread {
                 {
                     mgr.deleteEventRequest(mgr.stepRequests().get(0));
                     mgr.deleteEventRequests(mgr.methodEntryRequests());
+                    mgr.deleteEventRequests(mgr.breakpointRequests());
+                    mgr.deleteEventRequests(mgr.modificationWatchpointRequests());
+                    mgr.deleteEventRequests(mgr.accessWatchpointRequests());
                     System.out.println("second breakpoint at "+b2);
                     uptime = System.currentTimeMillis();
 
@@ -342,45 +381,106 @@ public class EventThread extends Thread {
                 // System.out.println(event.thread().frame(0).toString()+" Steeeeeeeeeeeeep eventttttttttttttttttttttttttttttttttttt at== "+event.location().lineNumber());                                  
                    mgr.deleteEventRequest(event.request());
                    //System.err.print("Stepevent  "+event.thread().frame(0).location());
+                   if(!modified_class_variable_name.equals(""))
+                   {                        
+                        
+                        System.err.println(modified_class_variable_name+"  modified to "+modified_class_variable_value.toString());
+                        if(modified_class_variable_value.equals(last_class_variable_access_value))
+                        {
+                            if(sensitive_class_variables.contains(class_var_accessed_name))
+                            {
+                                System.err.println(class_var_accessed_name+"->"+modified_class_variable_name+" "+(line.get(event.thread()).ln-1));
+                                sensitive_class_variables.add(modified_class_variable_name);
+                            }
+                            last_class_variable_access_value=null;
+                            class_var_accessed_name="";
+                            taint_information_class.put(modified_class_variable_name, taint_information_class.get(class_var_accessed_name)+" "+taint_information_class.get(modified_class_variable_name)+" "+class_var_accessed_name+":line-"+(ln-1));                                                              
+                        }
+                        else if(variables_new_value.containsValue(modified_class_variable_value))
+                        {
+                            
+                               for(LocalVariable mm:variables_old_value.keySet())
+                               {
+                                   Value tpp=variables_new_value.get(mm);
+                                   if((tpp!=null)&&(tpp.equals(modified_class_variable_value)))
+                                   {
+                                       if(sensitive_local_variables.contains(mm))
+                                       {
+                                          System.err.println(mm.name()+"->"+modified_class_variable_name+" "+(line.get(event.thread()).ln-1));
+                                          sensitive_class_variables.add(modified_class_variable_name);
+                                       }
+                                       taint_information_class.put(modified_class_variable_name, taint_information_local.get(mm)+" "+taint_information_class.get(modified_class_variable_name)+" "+mm.name()+":line-"+(ln-1));
+                                   }
+                               }
+                        }
+                        else if(sensitive_class_variables.contains(modified_class_variable_name))
+                        {
+                            sensitive_class_variables.remove(modified_class_variable_name);
+                        }
+                        if(!last_Sensitive_Source_Calls.equals(""))
+                        {
+                            if(Sensitive_Source_Calls_line_no==(ln-1))
+                            {
+                                sensitive_class_variables.add(modified_class_variable_name);
+                                taint_information_class.put(modified_class_variable_name, taint_information_class.get(modified_class_variable_name)+" "+last_Sensitive_Source_Calls+":line-"+(ln-1));
+                            }
+                            last_Sensitive_Source_Calls="";
+                        }
+                        modified_class_variable_name="";
+                        modified_class_variable_value=null;
+                   }
                    StackFrame sf=event.thread().frame(0);
                    for(LocalVariable v:sf.visibleVariables())
                    {
                        //System.err.print(v.name()+":"+sf.getValue(v)+" ");
                           // varvl1.put(v,sf.getValue(v).toString());
-                       if((sf.getValue(v)!=null)&&(!sf.getValue(v).equals(varvl1.get(v))))
-                       {                               
-                           if(varvl1.containsValue(sf.getValue(v)))
+                       if((sf.getValue(v)!=null)&&(!sf.getValue(v).equals(variables_new_value.get(v))))
+                       {   
+                           // for class variables accessWatchPoint
+                           if(sf.getValue(v).equals(last_class_variable_access_value))
+                           {
+                                System.err.println("class variable accesssedddddddd");
+                                if(sensitive_class_variables.contains(class_var_accessed_name))
+                                {
+                                    System.err.println(class_var_accessed_name+"->"+v.name()+" "+(line.get(event.thread()).ln-1));
+                                    sensitive_local_variables.add(v);
+                                }
+                                taint_information_local.put(v, taint_information_local.get(class_var_accessed_name)+" "+taint_information_local.get(v)+" "+class_var_accessed_name+":line-"+(ln-1));
+                                last_class_variable_access_value=null;
+                                class_var_accessed_name="";
+                           }
+                           else if(variables_new_value.containsValue(sf.getValue(v)))
                            {
                                HashSet <LocalVariable>tmp=new HashSet<>();
-                               for(LocalVariable mm:varvl2.keySet())
+                               for(LocalVariable mm:variables_old_value.keySet())
                                {
-                                   Value tpp=varvl1.get(mm);
+                                   Value tpp=variables_new_value.get(mm);
                                    if((tpp!=null)&&(tpp.equals(sf.getValue(v))))
                                    {
-                                       if(sensitive.contains(mm))
+                                       if(sensitive_local_variables.contains(mm))
                                        {
                                           System.err.println(mm.name()+"->"+v.name()+" "+(line.get(event.thread()).ln-1));
                                           tmp.add(v);
                                        }
-                                       taint_s.put(v, taint_s.get(mm)+" "+taint_s.get(v)+" "+mm.name()+":line-"+(ln-1));
+                                       taint_information_local.put(v, taint_information_local.get(mm)+" "+taint_information_local.get(v)+" "+mm.name()+":line-"+(ln-1));
                                    }
                                }
-                               sensitive.addAll(tmp);
+                               sensitive_local_variables.addAll(tmp);
                            }
-                           else if(sensitive.contains(v))
+                           else if(sensitive_local_variables.contains(v))
                            {
-                               sensitive.remove(v);
+                               sensitive_local_variables.remove(v);
                            }
-                           if(!inc_s.equals(""))
+                           if(!last_Sensitive_Source_Calls.equals(""))
                            {
-                               if(inc_l==(ln-1))
+                               if(Sensitive_Source_Calls_line_no==(ln-1))
                                {
-                                   sensitive.add(v);
-                                   taint_s.put(v, taint_s.get(v)+" "+inc_s+":line-"+(ln-1));
+                                   sensitive_local_variables.add(v);
+                                   taint_information_local.put(v, taint_information_local.get(v)+" "+last_Sensitive_Source_Calls+":line-"+(ln-1));
                                }
-                               inc_s="";
+                               last_Sensitive_Source_Calls="";
                            }
-                           varvl1.put(v,sf.getValue(v));
+                           variables_new_value.put(v,sf.getValue(v));
                        }
                    }
                    //System.err.println();
@@ -397,21 +497,26 @@ public class EventThread extends Thread {
                    st.addClassFilter("*."+fname);
                    st.setSuspendPolicy(EventRequest.SUSPEND_EVENT_THREAD);
                    st.enable(); 
-                   varvl2=new HashMap<>(varvl1);
-                   if(fl_t!=null)
+                   variables_old_value=new HashMap<>(variables_new_value);
+                   if(flown_to_var!=null)
                    {
-                       sensitive.add(fl_t);
-                       fl_t=null;
+                       sensitive_local_variables.add(flown_to_var);
+                       flown_to_var=null;
                    }
                 }
                                 
-                System.out.print("At "+(ln-1)+" Sensitive var:"+sensitive.size()+"|| ");
-                for(LocalVariable sv:sensitive)
+                System.out.print("At "+(ln-1)+" Sensitive var:"+sensitive_local_variables.size()+sensitive_class_variables+"|| ");
+                for(LocalVariable sv:sensitive_local_variables)
                 {
                     System.out.print(sv.name()+" ");
                 }
+                for(String classVarName:sensitive_class_variables)
+                {
+                    System.out.print(classVarName+" ");
+                }
                 System.out.println();
-            } catch (Exception ex) {
+            } catch (Exception ex) 
+            {
                //System.err.println("errorrrrrrr at "+event.location()+"  "+ex.toString());
                ex.printStackTrace();
             }
@@ -579,10 +684,11 @@ public class EventThread extends Thread {
                 {
                     System.err.println("more than one location possible");
                 }
-                BreakpointRequest b1=mgr.createBreakpointRequest(l1.get(0));
+                BreakpointRequest b1=mgr.createBreakpointRequest(l1.get(0));               
                 b1.setSuspendPolicy(EventRequest.SUSPEND_EVENT_THREAD);
                 b1.addThreadFilter(event.thread());
                 b1.enable();
+                System.out.println("breakpoints set");
                 //  event.referenceType().fieldByName(nextBaseIndent);
             } catch (AbsentInformationException ex) {
                 Logger.getLogger(EventThread.class.getName()).log(Level.SEVERE, null, ex);

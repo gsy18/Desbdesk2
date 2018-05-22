@@ -463,7 +463,7 @@ public class NewClass extends Thread {
                 st.addCountFilter(5);
                 st.enable();*/
                 ArrayList <Location>l1=(ArrayList <Location>) event.referenceType().locationsOfLine(27);
-                ArrayList <Location>l2=(ArrayList <Location>) event.referenceType().locationsOfLine(36);
+                ArrayList <Location>l2=(ArrayList <Location>) event.referenceType().locationsOfLine(30);
                 if((l1.size()+l2.size())>2)
                 {
                     System.err.println("more than one location possible");
