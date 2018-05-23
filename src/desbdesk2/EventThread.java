@@ -26,10 +26,10 @@ public class EventThread extends Thread {
     int b1,b2;
     static String nextBaseIndent = ""; // Starting indent for next thread
     HashMap <LocalVariable,Value>variables_new_value;
-    Value last_class_variable_access_value;
     Value modified_class_variable_value;
-    String class_var_accessed_name="";
+    int lineJustExecuted;
     String modified_class_variable_name="";
+    HashMap <String,Value>last_class_var_access;
     HashMap <LocalVariable,Value>variables_old_value;
     HashMap <LocalVariable,String>taint_information_local;
     HashMap <String,String>taint_information_class;
@@ -48,13 +48,14 @@ public class EventThread extends Thread {
     private Map<ThreadReference, ThreadTrace> traceMap =
        new HashMap<>();
 
-    EventThread(String yy,  String hhp,int i, int j,HashSet <String>sr1,HashSet <String>sr2,HashSet <String>sk1,HashSet <String>sk2,HashSet <String>sk3,HashSet <String>sk4,VirtualMachine vm, String[] excludes, PrintWriter writer) {
+    EventThread(String yy, String hhp,int i, int j,HashSet <String>sr1,HashSet <String>sr2,HashSet <String>sk1,HashSet <String>sk2,HashSet <String>sk3,HashSet <String>sk4,VirtualMachine vm, String[] excludes, PrintWriter writer) {
         super("event-handler");
         this.vm = vm;
         line =new HashMap<>();
         variables_old_value=new HashMap<>();
         taint_information_local=new HashMap<>();
-        taint_information_class=new HashMap<>();
+        taint_information_class=new HashMap<>();        
+        last_class_var_access=new HashMap<>();
         sensitive_source_classes=sr1;
         fname=yy;
         b1=i;
@@ -144,32 +145,7 @@ public class EventThread extends Thread {
                     {
                         last_Sensitive_Source_Calls+=currentMethodName+" ";
                         Sensitive_Source_Calls_line_no=p.ln;
-                    }
-                    else if(flow_methods.contains(currentMethodName))
-                    {
-                        for(Value v:event.thread().frame(0).getArgumentValues())
-                        {
-                            if(v!=null)
-                            {
-                                for(LocalVariable bb:sensitive_local_variables)
-                                {
-                                    if(v.equals(variables_new_value.get(bb)))
-                                    {
-                                        String var_o=event.thread().frame(0).thisObject().toString();
-                                        for(LocalVariable tm:variables_new_value.keySet())
-                                        {
-                                            if((variables_new_value.get(tm)!=null)&&variables_new_value.get(tm).toString().equals(var_o))
-                                            {
-                                                flown_to_var=tm;                                                
-                                                taint_information_local.put(tm, taint_information_local.get(tm)+" "+taint_information_local.get(bb)+" "+bb.name()+":line-"+p.ln);
-                                                break;
-                                            }
-                                        }
-                                    }
-                                }                                
-                            }
-                        }
-                    }
+                    }                    
                     else if(sensitive_sink_methods.contains(currentMethodName))
                     {
                         boolean ac=false;
@@ -193,7 +169,113 @@ public class EventThread extends Thread {
                         {
                             System.err.println();
                         }
-                    }  
+                    } 
+                    else if(flow_methods.contains(currentMethodName))
+                    {
+                        for(Value v:event.thread().frame(0).getArgumentValues())
+                        {
+                            if((v!=null)&&(event.thread().frame(0).thisObject()!=null))
+                            {
+                                
+                                String tmpn=event.thread().frame(0).thisObject().toString();
+                                String thatClassVar="";
+                                for(String name:last_class_var_access.keySet())
+                                {
+                                    if(tmpn.equals(last_class_var_access.get(name).toString()))
+                                    {
+                                        thatClassVar=name;
+                                        break;
+                                    }
+                                }
+                                if(!thatClassVar.equals(""))
+                                {
+                                    if(last_class_var_access.containsValue(v))
+                                    {
+                                        for(String name:last_class_var_access.keySet())
+                                        {
+                                            if(!name.equals(thatClassVar))
+                                            {
+                                                Value val=last_class_var_access.get(name);
+                                                if(v.equals(val))
+                                                {
+                                                    if(sensitive_class_variables.contains(name))
+                                                    {
+                                                        sensitive_class_variables.add(thatClassVar);
+                                                    }                                              
+                                                    taint_information_class.put(thatClassVar, taint_information_class.get(thatClassVar)+" "+taint_information_class.get(name)+" "+name+":line-"+p.ln);                                                                                                     
+                                                }
+                                            }
+                                        }
+                                    }
+                                    else if(variables_new_value.containsValue(v))
+                                    {
+                                        for(LocalVariable bb:variables_new_value.keySet())
+                                        {
+                                            if(v.equals(variables_new_value.get(bb)))
+                                            {
+                                                if(sensitive_local_variables.contains(bb))
+                                                {
+                                                    sensitive_class_variables.add(thatClassVar);
+                                                }                                              
+                                                taint_information_class.put(thatClassVar, taint_information_class.get(thatClassVar)+" "+taint_information_local.get(bb)+" "+bb.name()+":line-"+p.ln);
+                                                break;                                                                                                    
+                                            }
+                                        }
+                                    }
+                                }
+                                else
+                                {
+                                    if(last_class_var_access.containsValue(v))
+                                    {
+                                        for(String name:last_class_var_access.keySet())
+                                        {
+                                            Value val=last_class_var_access.get(name);
+                                            if(v.equals(val))
+                                            {
+                                                String var_o=event.thread().frame(0).thisObject().toString();
+                                                for(LocalVariable tm:variables_new_value.keySet())
+                                                {
+                                                    if((variables_new_value.get(tm)!=null)&&variables_new_value.get(tm).toString().equals(var_o))
+                                                    {
+                                                        if(sensitive_class_variables.contains(name))
+                                                        {
+                                                            sensitive_local_variables.add(tm);
+                                                        }                                              
+                                                        taint_information_local.put(tm, taint_information_local.get(tm)+" "+taint_information_class.get(name)+" "+name+":line-"+p.ln);
+                                                        break;
+                                                    }
+                                                }
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    else if(variables_new_value.containsValue(v))
+                                    {
+                                        for(LocalVariable bb:variables_new_value.keySet())
+                                        {
+                                            if(v.equals(variables_new_value.get(bb)))
+                                            {
+                                                String var_o=event.thread().frame(0).thisObject().toString();
+                                                for(LocalVariable tm:variables_new_value.keySet())
+                                                {
+                                                    if((variables_new_value.get(tm)!=null)&&variables_new_value.get(tm).toString().equals(var_o))
+                                                    {
+                                                        if(sensitive_local_variables.contains(bb))
+                                                        {
+                                                            sensitive_local_variables.add(tm);
+                                                        }                                              
+                                                        taint_information_local.put(tm, taint_information_local.get(tm)+" "+taint_information_local.get(bb)+" "+bb.name()+":line-"+p.ln);
+                                                        break;
+                                                    }
+                                                }
+                                                break;
+                                            }
+                                        }
+                                    }     
+                                }
+                            }
+                        }
+                    }
                 //}
             } 
             catch(NullPointerException ex)
@@ -201,8 +283,7 @@ public class EventThread extends Thread {
                 ex.printStackTrace();
             }            
             catch (Exception ex) {
-                System.err.println("fault functions is "+currentMethodName+"  in  "+event.method().declaringType().name()+" "+ex.toString());
-           
+                System.err.println("fault functions is "+currentMethodName+"  in  "+event.method().declaringType().name()+" "+ex.toString());           
             }
         }
 
@@ -216,7 +297,7 @@ public class EventThread extends Thread {
                 modified_class_variable_name=field.name();
                 modified_class_variable_value=event.valueToBe();
                // Value value = event.valueToBe();
-                System.err.println("modification || Line number="+event.location().lineNumber()+"  "+"Previous value="+event.valueCurrent()+"    "+event.object()+"    " + field.name() + " = " + event.valueToBe());                                              
+               // System.err.println("modification || Line number="+event.location().lineNumber()+"  "+"Previous value="+event.valueCurrent()+"    "+event.object()+"    " + field.name() + " = " + event.valueToBe());                                              
             } 
             catch (Exception ex) 
             {
@@ -226,9 +307,8 @@ public class EventThread extends Thread {
          void fieldAccessEvent(AccessWatchpointEvent event)  {  
                 Field field = event.field();
                 
-                System.err.println("access || Line number="+event.location().toString()+"  " + field.name()+"    "+field.typeName()+"   "+field.isPrivate()+"    "+event.valueCurrent());          
-                last_class_variable_access_value=event.valueCurrent();
-                class_var_accessed_name=field.name();         
+                //System.err.println("access || Line number="+event.location().toString()+"  " + field.name()+"    "+field.typeName()+"   "+field.isPrivate()+"    "+event.valueCurrent());          
+                last_class_var_access.put(field.name(), event.valueCurrent());
          }
         void exceptionEvent(ExceptionEvent event) {
             System.err.println("Exception: " + event.exception() +
@@ -279,9 +359,10 @@ public class EventThread extends Thread {
                     rw.setSuspendPolicy(EventRequest.SUSPEND_EVENT_THREAD);
                     req.enable();
                     // rw.setSuspendPolicy(EventRequest.SUSPEND_NONE);
-                   // rw.enable();
+                    rw.enable();
                 }
                 pair pr=new pair();
+                lineJustExecuted=b1;
                 pr.cname=event.location().declaringType().name();
                 pr.ln=event.location().lineNumber();        
                 line.put(event.thread(),pr);
@@ -353,8 +434,8 @@ public class EventThread extends Thread {
             try {
                 line.get(event.thread()).ln=event.location().lineNumber();
                 EventRequestManager mgr = vm.eventRequestManager();
-                int ln=event.location().lineNumber();
-                if(ln>=b2)
+               // int ln=event.location().lineNumber();
+                if(b2==lineJustExecuted)
                 {
                     mgr.deleteEventRequest(mgr.stepRequests().get(0));
                     mgr.deleteEventRequests(mgr.methodEntryRequests());
@@ -381,54 +462,57 @@ public class EventThread extends Thread {
                 // System.out.println(event.thread().frame(0).toString()+" Steeeeeeeeeeeeep eventttttttttttttttttttttttttttttttttttt at== "+event.location().lineNumber());                                  
                    mgr.deleteEventRequest(event.request());
                    //System.err.print("Stepevent  "+event.thread().frame(0).location());
-                   if(!modified_class_variable_name.equals(""))
-                   {                        
-                        
-                        System.err.println(modified_class_variable_name+"  modified to "+modified_class_variable_value.toString());
-                        if(modified_class_variable_value.equals(last_class_variable_access_value))
-                        {
-                            if(sensitive_class_variables.contains(class_var_accessed_name))
-                            {
-                                System.err.println(class_var_accessed_name+"->"+modified_class_variable_name+" "+(line.get(event.thread()).ln-1));
-                                sensitive_class_variables.add(modified_class_variable_name);
-                            }
-                            last_class_variable_access_value=null;
-                            class_var_accessed_name="";
-                            taint_information_class.put(modified_class_variable_name, taint_information_class.get(class_var_accessed_name)+" "+taint_information_class.get(modified_class_variable_name)+" "+class_var_accessed_name+":line-"+(ln-1));                                                              
-                        }
-                        else if(variables_new_value.containsValue(modified_class_variable_value))
-                        {
-                            
-                               for(LocalVariable mm:variables_old_value.keySet())
-                               {
-                                   Value tpp=variables_new_value.get(mm);
-                                   if((tpp!=null)&&(tpp.equals(modified_class_variable_value)))
-                                   {
-                                       if(sensitive_local_variables.contains(mm))
-                                       {
-                                          System.err.println(mm.name()+"->"+modified_class_variable_name+" "+(line.get(event.thread()).ln-1));
-                                          sensitive_class_variables.add(modified_class_variable_name);
-                                       }
-                                       taint_information_class.put(modified_class_variable_name, taint_information_local.get(mm)+" "+taint_information_class.get(modified_class_variable_name)+" "+mm.name()+":line-"+(ln-1));
-                                   }
-                               }
-                        }
-                        else if(sensitive_class_variables.contains(modified_class_variable_name))
-                        {
-                            sensitive_class_variables.remove(modified_class_variable_name);
-                        }
-                        if(!last_Sensitive_Source_Calls.equals(""))
-                        {
-                            if(Sensitive_Source_Calls_line_no==(ln-1))
-                            {
-                                sensitive_class_variables.add(modified_class_variable_name);
-                                taint_information_class.put(modified_class_variable_name, taint_information_class.get(modified_class_variable_name)+" "+last_Sensitive_Source_Calls+":line-"+(ln-1));
-                            }
-                            last_Sensitive_Source_Calls="";
-                        }
-                        modified_class_variable_name="";
-                        modified_class_variable_value=null;
-                   }
+                    if(!modified_class_variable_name.equals(""))
+                    {                        
+
+                        // System.err.println(modified_class_variable_name+"  modified to "+modified_class_variable_value.toString());
+                         if(last_class_var_access.containsValue(modified_class_variable_value))
+                         {
+                             for(String class_var_accessed_name:last_class_var_access.keySet())
+                             {
+                                Value last_class_variable_access_value=last_class_var_access.get(class_var_accessed_name);
+                                if(sensitive_class_variables.contains(class_var_accessed_name))
+                                {
+                                    System.err.println(class_var_accessed_name+"->"+modified_class_variable_name+" "+(line.get(event.thread()).ln-1));
+                                    sensitive_class_variables.add(modified_class_variable_name);
+                                }
+                                taint_information_class.put(modified_class_variable_name, taint_information_class.get(class_var_accessed_name)+" "+taint_information_class.get(modified_class_variable_name)+" "+class_var_accessed_name+":line-"+lineJustExecuted);                               
+                             }
+                                                                                           
+                         }
+                         else if(variables_new_value.containsValue(modified_class_variable_value))
+                         {
+
+                                for(LocalVariable mm:variables_old_value.keySet())
+                                {
+                                    Value tpp=variables_new_value.get(mm);
+                                    if((tpp!=null)&&(tpp.equals(modified_class_variable_value)))
+                                    {
+                                        if(sensitive_local_variables.contains(mm))
+                                        {
+                                           System.err.println(mm.name()+"->"+modified_class_variable_name+" "+(line.get(event.thread()).ln-1));
+                                           sensitive_class_variables.add(modified_class_variable_name);
+                                        }
+                                        taint_information_class.put(modified_class_variable_name, taint_information_local.get(mm)+" "+taint_information_class.get(modified_class_variable_name)+" "+mm.name()+":line-"+lineJustExecuted);
+                                    }
+                                }
+                         }
+                         else if(sensitive_class_variables.contains(modified_class_variable_name))
+                         {
+                             sensitive_class_variables.remove(modified_class_variable_name);
+                         }
+                         if(!last_Sensitive_Source_Calls.equals(""))
+                         {
+                             if(Sensitive_Source_Calls_line_no==lineJustExecuted)
+                             {
+                                 sensitive_class_variables.add(modified_class_variable_name);
+                                 taint_information_class.put(modified_class_variable_name, taint_information_class.get(modified_class_variable_name)+" "+last_Sensitive_Source_Calls+":line-"+lineJustExecuted);
+                             }
+                             last_Sensitive_Source_Calls="";
+                         }
+                         modified_class_variable_name="";
+                         modified_class_variable_value=null;
+                    }
                    StackFrame sf=event.thread().frame(0);
                    for(LocalVariable v:sf.visibleVariables())
                    {
@@ -437,17 +521,19 @@ public class EventThread extends Thread {
                        if((sf.getValue(v)!=null)&&(!sf.getValue(v).equals(variables_new_value.get(v))))
                        {   
                            // for class variables accessWatchPoint
-                           if(sf.getValue(v).equals(last_class_variable_access_value))
+                           if(last_class_var_access.containsValue(sf.getValue(v)))
                            {
                                 System.err.println("class variable accesssedddddddd");
-                                if(sensitive_class_variables.contains(class_var_accessed_name))
+                                for(String class_var_accessed_name:last_class_var_access.keySet())
                                 {
-                                    System.err.println(class_var_accessed_name+"->"+v.name()+" "+(line.get(event.thread()).ln-1));
-                                    sensitive_local_variables.add(v);
+                                    Value last_class_variable_access_value=last_class_var_access.get(class_var_accessed_name);
+                                    if(sensitive_class_variables.contains(class_var_accessed_name))
+                                    {
+                                        System.err.println(class_var_accessed_name+"->"+v.name()+" "+(line.get(event.thread()).ln-1));
+                                        sensitive_local_variables.add(v);
+                                    }
+                                    taint_information_local.put(v, taint_information_local.get(class_var_accessed_name)+" "+taint_information_local.get(v)+" "+class_var_accessed_name+":line-"+lineJustExecuted);                                    
                                 }
-                                taint_information_local.put(v, taint_information_local.get(class_var_accessed_name)+" "+taint_information_local.get(v)+" "+class_var_accessed_name+":line-"+(ln-1));
-                                last_class_variable_access_value=null;
-                                class_var_accessed_name="";
                            }
                            else if(variables_new_value.containsValue(sf.getValue(v)))
                            {
@@ -462,7 +548,7 @@ public class EventThread extends Thread {
                                           System.err.println(mm.name()+"->"+v.name()+" "+(line.get(event.thread()).ln-1));
                                           tmp.add(v);
                                        }
-                                       taint_information_local.put(v, taint_information_local.get(mm)+" "+taint_information_local.get(v)+" "+mm.name()+":line-"+(ln-1));
+                                       taint_information_local.put(v, taint_information_local.get(mm)+" "+taint_information_local.get(v)+" "+mm.name()+":line-"+lineJustExecuted);
                                    }
                                }
                                sensitive_local_variables.addAll(tmp);
@@ -473,10 +559,10 @@ public class EventThread extends Thread {
                            }
                            if(!last_Sensitive_Source_Calls.equals(""))
                            {
-                               if(Sensitive_Source_Calls_line_no==(ln-1))
+                               if(Sensitive_Source_Calls_line_no==lineJustExecuted)
                                {
                                    sensitive_local_variables.add(v);
-                                   taint_information_local.put(v, taint_information_local.get(v)+" "+last_Sensitive_Source_Calls+":line-"+(ln-1));
+                                   taint_information_local.put(v, taint_information_local.get(v)+" "+last_Sensitive_Source_Calls+":line-"+lineJustExecuted);
                                }
                                last_Sensitive_Source_Calls="";
                            }
@@ -498,14 +584,9 @@ public class EventThread extends Thread {
                    st.setSuspendPolicy(EventRequest.SUSPEND_EVENT_THREAD);
                    st.enable(); 
                    variables_old_value=new HashMap<>(variables_new_value);
-                   if(flown_to_var!=null)
-                   {
-                       sensitive_local_variables.add(flown_to_var);
-                       flown_to_var=null;
-                   }
                 }
                                 
-                System.out.print("At "+(ln-1)+" Sensitive var:"+sensitive_local_variables.size()+sensitive_class_variables+"|| ");
+                System.out.print("At "+lineJustExecuted+" Sensitive var:"+sensitive_local_variables.size()+sensitive_class_variables+"|| ");
                 for(LocalVariable sv:sensitive_local_variables)
                 {
                     System.out.print(sv.name()+" ");
@@ -513,13 +594,15 @@ public class EventThread extends Thread {
                 for(String classVarName:sensitive_class_variables)
                 {
                     System.out.print(classVarName+" ");
-                }
+                }                
+                last_class_var_access.clear();
                 System.out.println();
             } catch (Exception ex) 
             {
                //System.err.println("errorrrrrrr at "+event.location()+"  "+ex.toString());
                ex.printStackTrace();
             }
+            lineJustExecuted=event.location().lineNumber();
         }
 
         void threadDeathEvent(ThreadDeathEvent event)  {
