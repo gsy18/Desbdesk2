@@ -135,7 +135,7 @@ public class EventThread extends Thread {
 
 
         void methodEntryEvent(MethodEntryEvent event)  { 
-            
+           
             String currentMethodName=event.method().name();
             try {
                 pair p=line.get(event.thread());
@@ -151,6 +151,14 @@ public class EventThread extends Thread {
                         boolean ac=false;
                         for(Value v:event.thread().frame(0).getArgumentValues())
                         {
+                            if(!last_class_var_access.isEmpty())
+                            {
+                                String name=(String)last_class_var_access.keySet().toArray()[0];
+                                System.err.println(" Data leaked at "+p.ln+" by "+currentMethodName);
+                                System.err.print(name+" was tainted by "+taint_information_class.get(name));
+                                ac=true;
+                                break;
+                            }
                             if(v!=null)
                             {
                                 for(LocalVariable bb:sensitive_local_variables)
@@ -170,7 +178,7 @@ public class EventThread extends Thread {
                             System.err.println();
                         }
                     } 
-                    else if(flow_methods.contains(currentMethodName))
+                    else
                     {
                         for(Value v:event.thread().frame(0).getArgumentValues())
                         {
