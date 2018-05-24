@@ -319,8 +319,8 @@ public class EventThread extends Thread {
                 last_class_var_access.put(field.name(), event.valueCurrent());
          }
         void exceptionEvent(ExceptionEvent event) {
-            System.err.println("Exception: " + event.exception() +
-                    " catch: " + event.toString());
+            /*System.err.println("Exception: " + event.exception() +
+                    " catch: " + event.toString());*/
 /*
             // Step to the catch
             EventRequestManager mgr = vm.eventRequestManager();
@@ -355,7 +355,7 @@ public class EventThread extends Thread {
                 {
                     ModificationWatchpointRequest req = mgr.createModificationWatchpointRequest(field);
                     AccessWatchpointRequest rw = mgr.createAccessWatchpointRequest(field);
-                    System.out.println(field.name()+"  is class variable");
+                  //  System.out.println(field.name()+"  is class variable");
                     req.addClassFilter(event.location().declaringType());
                     rw.addClassFilter(event.location().declaringType()); 
                     
@@ -409,6 +409,7 @@ public class EventThread extends Thread {
                     st.enable();  
                     sensitive_source_classes.addAll(sensitive_sink_classes);
                     sensitive_source_classes.addAll(flow_classes);
+                  //  sensitive_source_classes.add("de.danoeh.antennapod.*");
                     for(String cs:sensitive_source_classes)
                     {
                         MethodEntryRequest menr = mgr.createMethodEntryRequest();
@@ -451,6 +452,28 @@ public class EventThread extends Thread {
                     mgr.deleteEventRequests(mgr.modificationWatchpointRequests());
                     mgr.deleteEventRequests(mgr.accessWatchpointRequests());
                     System.out.println("second breakpoint at "+b2);
+                    
+                    System.out.println("taint information of "+s_var+":- ");
+                    
+                    
+                    if(taint_information_class.keySet().contains(s_var))
+                    {
+                        System.out.println(taint_information_class.get(s_var));
+                    }
+                    else
+                    {
+                        for(LocalVariable tmp:taint_information_local.keySet())
+                        {
+                            if(tmp.name().equals(s_var))
+                            {
+                                System.out.println(taint_information_local.get(tmp));
+                            }
+                        }
+                    }
+                    HashMap <LocalVariable,String>taint_information_local;
+                    HashMap <String,String>taint_information_class;
+                    
+                    
                     uptime = System.currentTimeMillis();
 
                     long days1 = TimeUnit.MILLISECONDS.toDays(uptime);
@@ -531,7 +554,7 @@ public class EventThread extends Thread {
                            // for class variables accessWatchPoint
                            if(last_class_var_access.containsValue(sf.getValue(v)))
                            {
-                                System.err.println("class variable accesssedddddddd");
+                                //System.err.println("class variable accesssedddddddd");
                                 for(String class_var_accessed_name:last_class_var_access.keySet())
                                 {
                                     Value last_class_variable_access_value=last_class_var_access.get(class_var_accessed_name);
